@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bóveda Segura | Gestor de Contraseñas</title>
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Bóveda">
+    <link rel="apple-touch-icon" href="icon.png">
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#020617">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+
+        :root {
+            --bg-color: #020617;
+            --surface: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.1);
+            --primary: #0ea5e9;
+            --primary-hover: #0284c7;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --danger: #ef4444;
+            --success: #10b981;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, var(--bg-color) 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            -webkit-user-select: none;
+            user-select: none; 
+            overflow-x: hidden;
+            padding-bottom: 80px;
+        }
+
+        .glass-panel {
+            background: var(--surface);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 450px;
+        }
+
+        #landing-screen { text-align: center; }
+        #landing-screen h1 { color: #38bdf8; font-size: 2.5em; margin-bottom: 10px; }
+        #landing-screen p { color: var(--text-muted); margin-bottom: 30px; font-size: 1.1em; line-height: 1.5; }
+
+        #app-screen { display: none; width: 100%; max-width: 800px; padding: 20px; margin: 0 auto; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+        
+        input, button {
+            width: 100%; padding: 14px; margin-bottom: 15px; border-radius: 10px;
+            border: 1px solid var(--border); background: rgba(0, 0, 0, 0.2); color: white; font-size: 1em;
+        }
+
+        .input-wrapper { position: relative; width: 100%; }
+        .input-wrapper span { position: absolute; left: 14px; top: 16px; opacity: 0.6; font-size: 1.1em; }
+        .input-wrapper input { padding-left: 42px; margin-bottom: 0; }
+        .input-gap { margin-bottom: 15px; }
+
+        button { background: var(--primary); border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        button:hover { background: var(--primary-hover); transform: translateY(-2px); }
+        .btn-danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+        .btn-danger:hover { background: var(--danger); color: white; }
+
+        .filters { display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 5px; }
+        .filter-btn { background: var(--surface); width: auto; padding: 8px 15px; margin: 0; border-radius: 20px; font-size: 0.9em; transition: 0.2s; }
+        .filter-btn.active { background: var(--primary); }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; }
+        
+        .card { 
+            background: var(--surface); 
+            border: 1px solid var(--border); 
+            border-radius: 16px; 
+            padding: 20px; 
+            position: relative; 
+            overflow: hidden;
+            animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            opacity: 0;
+            transition: transform 0.3s, border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border-radius: 16px;
+            background: radial-gradient(800px circle at var(--mouse-x, 0) var(--mouse-y, 0), rgba(14, 165, 233, 0.15), transparent 40%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        .card:hover::before { opacity: 1; }
+        .card:hover { border-color: rgba(14, 165, 233, 0.4); box-shadow: 0 10px 30px -10px rgba(14, 165, 233, 0.2); transform: translateY(-3px); }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .badge { position: absolute; top: 15px; right: 15px; background: rgba(14, 165, 233, 0.2); color: #38bdf8; padding: 4px 10px; border-radius: 12px; font-size: 0.75em; font-weight: bold; }
+        
+        .card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 15px; pointer-events: none; }
+        .icon-container {
+            width: 40px; height: 40px; border-radius: 12px; background: rgba(255, 255, 255, 0.08);
+            display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .card-header img { width: 22px; height: 22px; border-radius: 4px; object-fit: contain; }
+        .card-header h3 { margin: 0; color: #fff; font-size: 1.15em; }
+        .card p { margin: 0 0 15px 0; color: var(--text-muted); font-size: 0.9em; pointer-events: none; }
+        
+        .action-btn { background: rgba(255, 255, 255, 0.1); padding: 10px; margin: 0; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.85em; flex: 1; border-radius: 8px; }
+        .action-btn:hover { background: rgba(255, 255, 255, 0.2); transform: none; }
+        .icon-btn { flex: 0 0 auto; width: 42px; padding: 10px; }
+
+        #notification { 
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); 
+            padding: 12px 25px; border-radius: 30px; color: white; display: none; 
+            z-index: 11000; white-space: nowrap; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        .search-container { position: relative; margin-bottom: 20px; width: 100%; }
+        #searchInput { padding-right: 50px; margin-bottom: 0; border-radius: 12px; }
+        .voice-btn { 
+            position: absolute; right: 5px; top: 5px; width: 40px; height: 40px; 
+            background: transparent; border: none; padding: 0; display: flex; 
+            justify-content: center; align-items: center; font-size: 1.3em; margin: 0;
+            border-radius: 8px;
+        }
+        .voice-btn:hover { background: rgba(255,255,255,0.1); transform: none; }
+        .voice-btn.recording { color: var(--danger); animation: pulse 1s infinite; }
+
+        .fab {
+            position: fixed; bottom: 25px; right: 25px; width: 60px; height: 60px;
+            border-radius: 50%; background: var(--primary); color: white; font-size: 2em;
+            border: none; box-shadow: 0 6px 20px rgba(14, 165, 233, 0.4); z-index: 8000;
+            display: flex; justify-content: center; align-items: center; padding: 0; margin: 0;
+        }
+
+        #form-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(2, 6, 23, 0.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            display: none; justify-content: center; align-items: flex-end; z-index: 9000;
+        }
+        #form-modal.active { display: flex; }
+        .modal-content {
+            background: var(--bg-color); width: 100%; max-width: 600px;
+            border-top-left-radius: 24px; border-top-right-radius: 24px; padding: 30px 20px;
+            border: 1px solid var(--border); border-bottom: none; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            max-height: 90vh; overflow-y: auto;
+        }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-header h3 { margin: 0; color: white; }
+        .close-modal { background: transparent; border: none; font-size: 1.5em; color: var(--text-muted); width: auto; padding: 0; margin: 0; }
+
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
+
+        #contextMenu {
+            position: fixed; background: rgba(2, 6, 23, 0.95); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--border); border-radius: 12px; padding: 8px 0; display: flex; flex-direction: column;
+            z-index: 9999; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); min-width: 180px;
+        }
+        #contextMenu.hidden { display: none; }
+        #contextMenu button { background: transparent; color: white; border: none; border-radius: 0; padding: 12px 20px; margin: 0; text-align: left; font-size: 0.95em; font-weight: normal; }
+        #contextMenu button:hover { background: rgba(255, 255, 255, 0.1); transform: none; }
+        #ctxDelete { color: var(--danger) !important; }
+
+        #lock-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(2, 6, 23, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 12000;
+        }
+        #lock-screen.active { display: flex; }
+        .pin-dots { display: flex; gap: 15px; margin-bottom: 30px; }
+        .pin-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--primary); background: transparent; transition: 0.2s; }
+        .pin-dot.filled { background: var(--primary); box-shadow: 0 0 10px var(--primary); }
+        .pin-pad { display: grid; grid-template-columns: repeat(3, 80px); gap: 15px; }
+        .pin-key { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border); border-radius: 50%; width: 80px; height: 80px; font-size: 1.5em; color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; margin: 0; }
+        .pin-key:active { background: var(--primary); transform: scale(0.95); }
+
+        #voice-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(2, 6, 23, 0.85);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display: none; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 10000; transition: opacity 0.3s ease;
+        }
+        #voice-overlay.active { display: flex; }
+        .siri-orb-container { position: relative; width: 140px; height: 140px; display: flex; justify-content: center; align-items: center; }
+        .siri-orb { width: 90px; height: 90px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #38bdf8, #0ea5e9, #6366f1, #a855f7); box-shadow: 0 0 35px rgba(56, 189, 248, 0.6), inset 0 0 15px rgba(255, 255, 255, 0.5); animation: siriSpin 4s linear infinite, siriPulse 1.8s ease-in-out infinite alternate; }
+        .siri-wave { position: absolute; width: 100%; height: 100%; border-radius: 50%; border: 2px solid rgba(56, 189, 248, 0.4); animation: wavePulse 1.6s ease-out infinite; }
+        .siri-wave:nth-child(2) { border-color: rgba(168, 85, 247, 0.4); animation-delay: 0.8s; }
+        @keyframes siriSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes siriPulse { 0% { transform: scale(0.95); filter: hue-rotate(0deg); } 100% { transform: scale(1.1); filter: hue-rotate(45deg); } }
+        @keyframes wavePulse { 0% { transform: scale(0.7); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+        .siri-text { margin-top: 25px; font-size: 1.1em; color: #f8fafc; font-weight: 500; letter-spacing: 0.5px; }
+    </style>
+</head>
+<body>
+
+    <div id="notification"></div>
+
+    <div id="lock-screen">
+        <h2 style="color: #38bdf8; margin-bottom: 10px;">Bóveda Bloqueada</h2>
+        <p style="color: var(--text-muted); margin-bottom: 30px;">Ingresa tu PIN de seguridad</p>
+        <div class="pin-dots">
+            <div class="pin-dot" id="dot-0"></div>
+            <div class="pin-dot" id="dot-1"></div>
+            <div class="pin-dot" id="dot-2"></div>
+            <div class="pin-dot" id="dot-3"></div>
+        </div>
+        <div class="pin-pad">
+            <button class="pin-key" onclick="pressPin('1')">1</button>
+            <button class="pin-key" onclick="pressPin('2')">2</button>
+            <button class="pin-key" onclick="pressPin('3')">3</button>
+            <button class="pin-key" onclick="pressPin('4')">4</button>
+            <button class="pin-key" onclick="pressPin('5')">5</button>
+            <button class="pin-key" onclick="pressPin('6')">6</button>
+            <button class="pin-key" onclick="pressPin('7')">7</button>
+            <button class="pin-key" onclick="pressPin('8')">8</button>
+            <button class="pin-key" onclick="pressPin('9')">9</button>
+            <button class="pin-key" onclick="pressPin('C')" style="font-size: 1em; color: var(--danger);">C</button>
+            <button class="pin-key" onclick="pressPin('0')">0</button>
+            <button class="pin-key" onclick="pressPin('B')" style="font-size: 1em;">⌫</button>
+        </div>
+    </div>
+
+    <div id="landing-screen" class="glass-panel">
+        <h1>Bóveda Segura</h1>
+        <p>Tu vida digital protegida con encriptación de extremo a extremo (AES).</p>
+        <button onclick="showAuthScreen()">Comenzar ahora</button>
+    </div>
+
+    <div id="app-screen">
+        <div id="auth-section" class="glass-panel" style="margin: 0 auto;">
+            <h2 id="auth-title" style="text-align: center; margin-top: 0;">Iniciar Sesión</h2>
+            <form onsubmit="event.preventDefault(); handleAuth();">
+                <div class="input-wrapper input-gap">
+                    <span>👤</span>
+                    <input type="text" id="username" placeholder="Nombre de usuario" autocomplete="username" required>
+                </div>
+                <div class="input-wrapper input-gap">
+                    <span>🔑</span>
+                    <input type="password" id="password" placeholder="Contraseña Maestra" autocomplete="current-password" required>
+                </div>
+                <button type="submit" id="auth-btn">Ingresar</button>
+                <button type="button" id="bio-login-btn" onclick="loginWithBiometrics()" style="display: none; background: var(--success); margin-top: 10px;">👉 Ingresar con Huella/Rostro</button>
+            </form>
+            <p style="text-align: center; color: var(--text-muted); cursor: pointer;" onclick="toggleAuthMode()">
+                ¿No tienes cuenta? <span style="color: var(--primary);">Regístrate</span>
+            </p>
+        </div>
+
+        <div id="vault-section" style="display: none;">
+            <div class="top-bar">
+                <h2 style="margin: 0;">Mis Credenciales</h2>
+                <div style="display: flex; gap: 10px;">
+                    <button id="enable-bio-btn" class="action-btn" onclick="enableBiometrics()" style="width: auto; background: var(--success); color: white; border: none; border-radius: 8px;">🔐 Huella</button>
+                    <button class="btn-danger" style="width: auto; padding: 8px 15px; border-radius: 8px;" onclick="logout()">Cerrar Sesión</button>
+                </div>
+            </div>
+
+            <div class="search-container">
+                <input type="text" id="searchInput" placeholder="Buscar plataforma o usuario..." autocomplete="off">
+                <button id="btnVoiceSearch" class="voice-btn" title="Búsqueda por voz">🎤</button>
+            </div>
+
+            <div class="filters" id="filters-container"></div>
+            <div id="credentials-list" class="grid"></div>
+
+            <button id="fab-add" class="fab" onclick="openForm()">+</button>
+        </div>
+    </div>
+
+    <div id="form-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="form-title">Nueva Credencial</h3>
+                <button class="close-modal" onclick="closeForm()">×</button>
+            </div>
+            
+            <div class="input-wrapper input-gap">
+                <span>🌐</span>
+                <input type="text" id="site-name" placeholder="Plataforma (ej. Facebook)" autocomplete="organization">
+            </div>
+            <div class="input-wrapper input-gap">
+                <span>📧</span>
+                <input type="email" id="site-email" placeholder="Usuario / Correo" autocomplete="email">
+            </div>
+            <div class="input-wrapper input-gap">
+                <span>🔒</span>
+                <input type="password" id="site-pwd" placeholder="Contraseña" autocomplete="new-password">
+            </div>
+            <div class="input-wrapper input-gap">
+                <span>🏷️</span>
+                <input type="text" id="site-category" placeholder="Etiqueta (Personal, Trabajo)" list="default-categories">
+                <datalist id="default-categories">
+                    <option value="Personal">
+                    <option value="Trabajo">
+                    <option value="Bancos">
+                    <option value="Entretenimiento">
+                </datalist>
+            </div>
+            
+            <button type="button" id="save-btn" onclick="saveCredential()" style="margin-top: 10px;">🔒 Encriptar y Guardar</button>
+        </div>
+    </div>
+
+    <div id="contextMenu" class="hidden">
+        <button id="ctxCopyUser">📋 Copiar Usuario</button>
+        <button id="ctxCopyPass">🔑 Copiar Contraseña</button>
+        <button id="ctxEdit">✏️ Editar</button>
+        <button id="ctxDelete">🗑️ Eliminar</button>
+    </div>
+
+    <div id="voice-overlay" onclick="closeVoiceOverlay()">
+        <div class="siri-orb-container"><div class="siri-wave"></div><div class="siri-wave"></div><div class="siri-orb"></div></div>
+        <div class="siri-text" id="siriText">Escuchando...</div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAiwt85j4_x8z4svYlcCeHmcsoG3bykOPQ",
+            authDomain: "boveda---segura.firebaseapp.com",
+            projectId: "boveda---segura",
+            storageBucket: "boveda---segura.firebasestorage.app",
+            messagingSenderId: "1006472705751",
+            appId: "1:1006472705751:web:8d5ce13185e1711e46e292"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let isLogin = true, currentUser = null, credentialsData = [], currentFilter = 'Todas', editingId = null, currentSessionPwd = ''; 
+        let pressTimer, contextTargetData = null;
+        let enteredPin = '', userPin = localStorage.getItem('vault_pin') || '1234';
+        const contextMenu = document.getElementById('contextMenu');
+
+        let inactivityTimer;
+        const resetTimer = () => {
+            clearTimeout(inactivityTimer);
+            if(currentUser) {
+                inactivityTimer = setTimeout(() => { 
+                    lockVault(); 
+                }, 180000); 
+            }
+        };
+
+        window.lockVault = () => {
+            if (currentUser && document.getElementById('vault-section').style.display === 'block') {
+                document.getElementById('lock-screen').classList.add('active');
+                enteredPin = '';
+                updatePinDots();
+            }
+        };
+
+        window.pressPin = (num) => {
+            if (num === 'C') {
+                enteredPin = '';
+            } else if (num === 'B') {
+                enteredPin = enteredPin.slice(0, -1);
+            } else if (enteredPin.length < 4) {
+                enteredPin += num;
+            }
+            updatePinDots();
+
+            if (enteredPin.length === 4) {
+                if (enteredPin === userPin) {
+                    document.getElementById('lock-screen').classList.remove('active');
+                    showNotification("Bóveda desbloqueada");
+                    resetTimer();
+                } else {
+                    showNotification("PIN incorrecto", true);
+                    enteredPin = '';
+                    updatePinDots();
+                }
+            }
+        };
+
+        function updatePinDots() {
+            for (let i = 0; i < 4; i++) {
+                const dot = document.getElementById(`dot-${i}`);
+                if (i < enteredPin.length) {
+                    dot.classList.add('filled');
+                } else {
+                    dot.classList.remove('filled');
+                }
+            }
+        }
+
+        window.onload = () => { resetTimer(); checkBioStatus(); setupVoiceSearch(); setupSpotlightEffect(); };
+        document.onmousemove = resetTimer; document.onkeypress = resetTimer; document.ontouchstart = resetTimer; 
+
+        function setupSpotlightEffect() {
+            document.addEventListener('mousemove', e => {
+                for(const card of document.querySelectorAll('.card')) {
+                    const rect = card.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    card.style.setProperty('--mouse-x', `${x}px`);
+                    card.style.setProperty('--mouse-y', `${y}px`);
+                }
+            });
+        }
+
+        window.showNotification = (msg, isError = false) => {
+            const notif = document.getElementById('notification');
+            notif.textContent = msg; notif.style.background = isError ? "var(--danger)" : "var(--primary)";
+            notif.style.display = "block"; setTimeout(() => notif.style.display = "none", 3000);
+            if (navigator.vibrate) navigator.vibrate([50]);
+        };
+
+        window.showAuthScreen = () => {
+            document.getElementById('landing-screen').style.display = 'none';
+            document.getElementById('app-screen').style.display = 'block';
+            checkBioStatus();
+        };
+
+        window.toggleAuthMode = () => {
+            isLogin = !isLogin;
+            document.getElementById('auth-title').textContent = isLogin ? "Iniciar Sesión" : "Registrarse";
+            document.getElementById('auth-btn').textContent = isLogin ? "Ingresar" : "Crear Cuenta";
+            checkBioStatus();
+        };
+
+        window.handleAuth = async () => {
+            const username = document.getElementById('username').value.trim();
+            const pwd = document.getElementById('password').value;
+            const fakeEmail = `${username.toLowerCase()}@boveda.local`;
+            try {
+                if (isLogin) await signInWithEmailAndPassword(auth, fakeEmail, pwd);
+                else await createUserWithEmailAndPassword(auth, fakeEmail, pwd);
+                currentSessionPwd = pwd; 
+            } catch (error) { showNotification("Error de credenciales", true); }
+        };
+
+        window.logout = () => { currentSessionPwd = ''; signOut(auth); };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                document.getElementById('auth-section').style.display = 'none';
+                document.getElementById('vault-section').style.display = 'block';
+                document.getElementById('enable-bio-btn').style.display = localStorage.getItem('bio_cred_id') ? 'none' : 'block';
+                resetTimer(); loadCredentials();
+            } else {
+                currentUser = null; clearTimeout(inactivityTimer); 
+                document.getElementById('auth-section').style.display = 'block';
+                document.getElementById('vault-section').style.display = 'none';
+                document.getElementById('app-screen').style.display = 'none';
+                document.getElementById('landing-screen').style.display = 'block';
+                closeForm();
+                checkBioStatus();
+            }
+        });
+
+        window.openForm = () => {
+            document.getElementById('form-modal').classList.add('active');
+            if(!editingId) {
+                document.getElementById('form-title').innerText = "Nueva Credencial";
+                document.getElementById('save-btn').innerHTML = "🔒 Encriptar y Guardar";
+            }
+        };
+
+        window.closeForm = () => {
+            document.getElementById('form-modal').classList.remove('active');
+            editingId = null;
+            document.getElementById('site-name').value = ''; document.getElementById('site-email').value = '';
+            document.getElementById('site-pwd').value = ''; document.getElementById('site-category').value = '';
+        };
+
+        function bufferToBase64(buf) { return btoa(String.fromCharCode.apply(null, new Uint8Array(buf))); }
+        function base64ToBuffer(str) { return Uint8Array.from(atob(str), c => c.charCodeAt(0)); }
+        function checkBioStatus() { document.getElementById('bio-login-btn').style.display = (localStorage.getItem('bio_cred_id') && isLogin) ? 'block' : 'none'; }
+
+        window.enableBiometrics = async () => {
+            if (!window.PublicKeyCredential) return showNotification("No soporta biometría", true);
+            try {
+                const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
+                const userId = new Uint8Array(16); window.crypto.getRandomValues(userId);
+                const publicKey = { challenge, rp: { name: "Bóveda Segura" }, user: { id: userId, name: currentUser.email, displayName: currentUser.email }, pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }], authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" }, timeout: 60000 };
+                const credential = await navigator.credentials.create({ publicKey });
+                localStorage.setItem('bio_cred_id', bufferToBase64(credential.rawId)); localStorage.setItem('saved_email', currentUser.email); localStorage.setItem('saved_pwd', currentSessionPwd);
+                document.getElementById('enable-bio-btn').style.display = 'none'; showNotification("¡Biometría vinculada!");
+            } catch (err) { showNotification("Cancelado", true); }
+        };
+
+        window.loginWithBiometrics = async () => {
+            const credIdStr = localStorage.getItem('bio_cred_id'), savedEmail = localStorage.getItem('saved_email'), savedPwd = localStorage.getItem('saved_pwd');
+            if (!credIdStr || !savedEmail || !savedPwd) return showNotification("Configuración incompleta", true);
+            try {
+                const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
+                const publicKey = { challenge, allowCredentials: [{ id: base64ToBuffer(credIdStr), type: 'public-key' }], userVerification: "required", timeout: 60000 };
+                await navigator.credentials.get({ publicKey });
+                showNotification("Validando..."); await signInWithEmailAndPassword(auth, savedEmail, savedPwd); currentSessionPwd = savedPwd;
+            } catch (err) { showNotification("Fallo al autenticar", true); }
+        };
+
+        window.saveCredential = async () => {
+            if (!currentUser) return;
+            const site = document.getElementById('site-name').value.trim();
+            const email = document.getElementById('site-email').value.trim();
+            const pwd = document.getElementById('site-pwd').value;
+            let category = document.getElementById('site-category').value.trim() || 'Otros';
+            
+            if(!site || !pwd) return showNotification("Faltan la plataforma o la contraseña", true);
+            const encryptedPwd = CryptoJS.AES.encrypt(pwd, currentUser.uid).toString();
+
+            try {
+                if (editingId) {
+                    await updateDoc(doc(db, "users", currentUser.uid, "passwords", editingId), { site, email, password: encryptedPwd, category });
+                    showNotification("¡Actualizada!"); 
+                } else {
+                    await addDoc(collection(db, "users", currentUser.uid, "passwords"), { site, email, password: encryptedPwd, category });
+                    showNotification("¡Guardado y Encriptado!");
+                }
+                closeForm();
+            } catch (error) { showNotification("Error al guardar", true); }
+        };
+
+        window.editCredential = (id) => {
+            const item = credentialsData.find(c => c.id === id); if(!item) return;
+            document.getElementById('site-name').value = item.site; document.getElementById('site-email').value = item.email; document.getElementById('site-category').value = item.category;
+            document.getElementById('site-pwd').value = CryptoJS.AES.decrypt(item.password, currentUser.uid).toString(CryptoJS.enc.Utf8);
+            editingId = id; 
+            document.getElementById('form-title').innerText = "Editar Credencial";
+            document.getElementById('save-btn').innerHTML = "✏️ Actualizar Credencial"; 
+            openForm();
+        };
+
+        window.deleteCredential = async (id) => {
+            if(confirm("¿Eliminar definitivamente?")) {
+                try { await deleteDoc(doc(db, "users", currentUser.uid, "passwords", id)); showNotification("Eliminada", false); } 
+                catch(error) { showNotification("Error al borrar", true); }
+            }
+        };
+
+        function loadCredentials() {
+            onSnapshot(query(collection(db, "users", currentUser.uid, "passwords")), (snapshot) => {
+                credentialsData = []; snapshot.forEach(doc => { credentialsData.push({ id: doc.id, ...doc.data() }); });
+                renderDynamicFilters(); renderCredentials();
+            });
+        }
+
+        const searchInputEl = document.getElementById('searchInput');
+        if (searchInputEl) searchInputEl.addEventListener('input', renderCredentials);
+
+        function renderDynamicFilters() {
+            const container = document.getElementById('filters-container'); if (!container) return;
+            container.innerHTML = '';
+            const uniqueCategories = ['Todas', ...new Set(credentialsData.map(item => item.category))];
+            if (!uniqueCategories.includes(currentFilter)) currentFilter = 'Todas';
+            uniqueCategories.forEach(cat => {
+                const btn = document.createElement('button'); btn.className = `filter-btn ${cat === currentFilter ? 'active' : ''}`;
+                btn.textContent = cat; btn.onclick = () => filterByCategory(cat); container.appendChild(btn);
+            });
+        }
+
+        window.filterByCategory = (cat) => { currentFilter = cat; renderDynamicFilters(); renderCredentials(); };
+
+        window.copyPwd = (encryptedText, btnElement) => {
+            const decrypted = CryptoJS.AES.decrypt(encryptedText, currentUser.uid).toString(CryptoJS.enc.Utf8);
+            navigator.clipboard.writeText(decrypted).then(() => {
+                const originalText = btnElement.innerHTML; btnElement.innerHTML = "✅"; btnElement.style.background = "var(--primary)";
+                if (navigator.vibrate) navigator.vibrate([50]);
+                setTimeout(() => { btnElement.innerHTML = originalText; btnElement.style.background = "rgba(255, 255, 255, 0.1)"; }, 2000);
+            });
+        };
+
+        window.showPwd = (encryptedText, inputId, btnElement) => {
+            const input = document.getElementById(inputId); if (input.type === 'text') return; 
+            input.type = 'text'; input.value = CryptoJS.AES.decrypt(encryptedText, currentUser.uid).toString(CryptoJS.enc.Utf8);
+            const originalBg = btnElement.style.background; btnElement.style.background = "var(--primary)";
+            setTimeout(() => { input.type = 'password'; input.value = '••••••••••••'; btnElement.style.background = originalBg; }, 10000);
+        };
+
+        window.closeVoiceOverlay = () => {
+            const overlay = document.getElementById('voice-overlay'); if (overlay) overlay.classList.remove('active');
+            const btnVoice = document.getElementById('btnVoiceSearch'); if (btnVoice) btnVoice.classList.remove('recording');
+        };
+
+        function setupVoiceSearch() {
+            const btnVoiceSearch = document.getElementById('btnVoiceSearch');
+            const searchInput = document.getElementById('searchInput');
+            const voiceOverlay = document.getElementById('voice-overlay');
+            const siriText = document.getElementById('siriText');
+
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                btnVoiceSearch.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    const recognition = new SpeechRecognition();
+                    recognition.lang = 'es-ES';
+                    recognition.interimResults = true; 
+                    recognition.continuous = false;
+
+                    recognition.onstart = () => {
+                        siriText.textContent = "Escuchando..."; 
+                        voiceOverlay.classList.add('active'); 
+                        btnVoiceSearch.classList.add('recording');
+                        if (navigator.vibrate) navigator.vibrate([40]);
+                    };
+
+                    recognition.onresult = (event) => {
+                        let transcript = '';
+                        for (let i = event.resultIndex; i < event.results.length; i++) {
+                            transcript += event.results[i][0].transcript;
+                        }
+                        transcript = transcript.replace(/\.$/, "");
+                        siriText.textContent = `"${transcript}"`;
+                        if (searchInput) searchInput.value = transcript; 
+                        renderCredentials();
+
+                        if (event.results[event.results.length - 1].isFinal) {
+                            if (navigator.vibrate) navigator.vibrate([30, 50, 30]); 
+                            setTimeout(() => window.closeVoiceOverlay(), 1000);
+                        }
+                    };
+
+                    recognition.onspeechend = () => recognition.stop();
+                    recognition.onerror = () => window.closeVoiceOverlay();
+                    try { recognition.start(); } catch (err) { window.closeVoiceOverlay(); }
+                });
+            } else { if (btnVoiceSearch) btnVoiceSearch.style.display = 'none'; }
+        }
+
+        function attachLongPressListeners(element, data) {
+            element.addEventListener('touchstart', (e) => startPress(e, data), {passive: true});
+            element.addEventListener('touchend', cancelPress); element.addEventListener('touchmove', cancelPress);
+            element.addEventListener('mousedown', (e) => startPress(e, data));
+            element.addEventListener('mouseup', cancelPress); element.addEventListener('mouseleave', cancelPress);
+        }
+        function startPress(e, data) { pressTimer = setTimeout(() => { showContextMenu(e, data); }, 700); }
+        function cancelPress() { clearTimeout(pressTimer); }
+        function showContextMenu(e, data) {
+            if(e.cancelable) e.preventDefault(); contextTargetData = data;
+            const x = e.touches ? e.touches[0].clientX : e.clientX, y = e.touches ? e.touches[0].clientY : e.clientY;
+            contextMenu.style.left = `${(x + 180 > window.innerWidth) ? window.innerWidth - 190 : x}px`;
+            contextMenu.style.top = `${(y + 200 > window.innerHeight) ? window.innerHeight - 210 : y}px`;
+            contextMenu.classList.remove('hidden'); if (navigator.vibrate) navigator.vibrate([50]); 
+        }
+
+        document.addEventListener('click', (e) => { if (!contextMenu.contains(e.target)) contextMenu.classList.add('hidden'); });
+        document.addEventListener('touchstart', (e) => { if (!contextMenu.contains(e.target) && !e.target.closest('.card')) contextMenu.classList.add('hidden'); });
+
+        const ctxCopyUserEl = document.getElementById('ctxCopyUser');
+        if (ctxCopyUserEl) ctxCopyUserEl.addEventListener('click', () => { navigator.clipboard.writeText(contextTargetData.email).then(() => showNotification("Usuario copiado")); contextMenu.classList.add('hidden'); });
+        
+        const ctxCopyPassEl = document.getElementById('ctxCopyPass');
+        if (ctxCopyPassEl) ctxCopyPassEl.addEventListener('click', () => { navigator.clipboard.writeText(CryptoJS.AES.decrypt(contextTargetData.password, currentUser.uid).toString(CryptoJS.enc.Utf8)).then(() => showNotification("Contraseña copiada")); contextMenu.classList.add('hidden'); });
+        
+        const ctxEditEl = document.getElementById('ctxEdit');
+        if (ctxEditEl) ctxEditEl.addEventListener('click', () => { editCredential(contextTargetData.id); contextMenu.classList.add('hidden'); });
+        
+        const ctxDeleteEl = document.getElementById('ctxDelete');
+        if (ctxDeleteEl) ctxDeleteEl.addEventListener('click', () => { deleteCredential(contextTargetData.id); contextMenu.classList.add('hidden'); });
+
+        function renderCredentials() {
+            const list = document.getElementById('credentials-list'); if (!list) return;
+            list.innerHTML = '';
+            const searchTerm = searchInputEl ? searchInputEl.value.toLowerCase() : '';
+            const filteredData = credentialsData.filter(item => (currentFilter === 'Todas' || item.category === currentFilter) && (item.site.toLowerCase().includes(searchTerm) || item.email.toLowerCase().includes(searchTerm)));
+
+            filteredData.forEach((item, index) => {
+                const div = document.createElement('div'); div.className = 'card glass-panel';
+                div.style.animationDelay = `${index * 0.05}s`;
+                
+                const faviconUrl = `https://icon.horse/icon/${item.site.split(' ')[0].toLowerCase()}.com`;
+                div.innerHTML = `
+                    <span class="badge">${item.category}</span>
+                    <div class="card-header">
+                        <div class="icon-container"><img src="${faviconUrl}" onerror="this.src='https://cdn-icons-png.flaticon.com/512/2889/2889312.png'" alt="logo"></div>
+                        <h3>${item.site}</h3>
+                    </div>
+                    <p>${item.email}</p>
+                    <div style="display: flex; gap: 5px; align-items: center;">
+                        <input type="password" id="pwd-${item.id}" value="••••••••••••" disabled autocomplete="current-password" style="margin: 0; background: rgba(0,0,0,0.4); border: none; width: 100%;">
+                        <button class="action-btn icon-btn" title="Ver" onclick="showPwd('${item.password}', 'pwd-${item.id}', this)">👁️</button>
+                        <button class="action-btn icon-btn" title="Copiar" onclick="copyPwd('${item.password}', this)">📋</button>
+                    </div>`;
+                attachLongPressListeners(div, item); list.appendChild(div);
+            });
+        }
+    </script>
+    <script>if ('serviceWorker' in navigator) { window.addEventListener('load', function() { navigator.serviceWorker.register('sw.js').catch(e => console.log('SW Error', e)); }); }</script>
+</body>
+</html>
+    
